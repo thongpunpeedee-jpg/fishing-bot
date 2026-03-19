@@ -149,7 +149,7 @@ class AutoDetectionWorker(QObject):
 class DetectionDisplay(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🎣AUTO🎣 (Ready to use!!)")
+        self.setWindowTitle("🎣AUTO🎣 (test)")
         self.setFixedSize(600, 150)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("background-color: #000;")
