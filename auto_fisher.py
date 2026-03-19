@@ -5,6 +5,7 @@ import mss
 import pydirectinput
 import time
 import keyboard
+import random  # 🔥 เพิ่มการสุ่มเพื่อความเนียน
 from collections import Counter
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
@@ -30,40 +31,29 @@ class AutoDetectionWorker(QObject):
         self.state = 0
         self.last_time = 0
         self.wait_duration = 10.0
-
         self.last_result = None
         self.same_count = 0
-
-        self.brightness_level = 1  # 🔆 0=สว่าง,1=ปกติ,2=มืด
+        self.use_brightness = True
 
     def enhance(self, img):
-        if self.brightness_level == 0:
-            # 🔆 สว่าง
-            alpha, beta = 1.4, 40
-        elif self.brightness_level == 1:
-            # 🌤️ ปกติ
-            return img
-        else:
-            # 🌑 มืดลง
-            alpha, beta = 0.9, -20
-
+        alpha = 1.3
+        beta = 30
         return cv2.convertScaleAbs(img, alpha=alpha, beta=beta)
 
     def run(self):
         self.running = True
         with mss.mss() as sct:
             while self.running:
-
-                # 🔆 กด F1 เปลี่ยนระดับแสง
                 if keyboard.is_pressed('f1'):
-                    self.brightness_level = (self.brightness_level + 1) % 3
+                    self.use_brightness = not self.use_brightness
                     time.sleep(0.3)
 
                 sct_img = sct.grab(self.monitor)
                 frame = np.array(sct_img)
                 bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
 
-                bgr = self.enhance(bgr)
+                if self.use_brightness:
+                    bgr = self.enhance(bgr)
 
                 current_time = time.time()
 
@@ -79,37 +69,29 @@ class AutoDetectionWorker(QObject):
 
                 elif self.state == 2:
                     all_results = []
-
+                    # แคปภาพ 6 ครั้งเพื่อความแม่นยำ
                     for _ in range(6):  
                         sct_img = sct.grab(self.monitor)
+                        # ... (ส่วนประมวลผลเหมือนเดิม)
                         frame = np.array(sct_img)
-                        bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-
-                        bgr = self.enhance(bgr)
-
+                        temp_bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                        if self.use_brightness: temp_bgr = self.enhance(temp_bgr)
+                        
                         raw_matches = []
                         for key_name, temp_img in self.templates.items():
-                            res = cv2.matchTemplate(bgr, temp_img, cv2.TM_CCOEFF_NORMED)
+                            res = cv2.matchTemplate(temp_bgr, temp_img, cv2.TM_CCOEFF_NORMED)
                             loc = np.where(res >= self.threshold)
-
                             for pt in zip(*loc[::-1]):
-                                raw_matches.append({
-                                    'x': pt[0],
-                                    'key': key_name,
-                                    'score': res[pt[1], pt[0]]
-                                })
+                                raw_matches.append({'x': pt[0], 'key': key_name, 'score': res[pt[1], pt[0]]})
 
                         if raw_matches:
                             raw_matches.sort(key=lambda x: x['score'], reverse=True)
-
                             final = []
                             for m in raw_matches:
                                 if not any(abs(m['x'] - f['x']) < 35 for f in final):
                                     final.append(m)
-
                             final.sort(key=lambda x: x['x'])
                             all_results.append(tuple(m['key'] for m in final))
-
                         time.sleep(0.005)
 
                     if all_results:
@@ -121,12 +103,16 @@ class AutoDetectionWorker(QObject):
                             self.same_count = 1
                             self.last_result = most_common
 
-                        if self.same_count >= 1:  
-                            time.sleep(0.1)
+                        # --- ส่วนที่ปรับปรุง: การรอและจังหวะกดปุ่ม ---
+                        if self.same_count >= 1:
+                            # 1. รอหลังจากแคปเสร็จ (0.15 - 0.3 วินาที) ไม่ให้กดทันทีจนเกินไป
+                            time.sleep(random.uniform(0.15, 0.3))
 
                             for key in most_common:
                                 pydirectinput.press(key.lower())
-                                time.sleep(0.03)
+                                # 2. ความเร็วระหว่างการกดแต่ละปุ่ม (0.08 - 0.15 วินาที)
+                                # ไม่ช้าจนคอมโบหลุด แต่ไม่เร็วเหมือนบอทกด
+                                time.sleep(random.uniform(0.08, 0.15))
 
                             self.same_count = 0
                             self.last_result = None
@@ -134,6 +120,7 @@ class AutoDetectionWorker(QObject):
                             self.last_time = current_time
 
                 elif self.state == 3:
+                    # รอหลังจากกดจบชุด ก่อนจะกด 'e' ต่อ
                     if current_time - self.last_time >= 1.1:
                         pydirectinput.press('e')
                         self.state = 1
@@ -145,23 +132,20 @@ class AutoDetectionWorker(QObject):
     def stop(self): 
         self.running = False
 
-
+# --- ส่วน Class DetectionDisplay (เหมือนเดิม) ---
 class DetectionDisplay(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🎣AUTO🎣 (test)")
+        self.setWindowTitle("🎣AUTO🎣 (test1)")
         self.setFixedSize(600, 150)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("background-color: #000;")
-
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         self.label = QLabel()
         layout.addWidget(self.label)
         self.setLayout(layout)
-        
         self.monitor = {"top": 825, "left": 750, "width": 420, "height": 85}
-        
         self.worker = AutoDetectionWorker(self.monitor)
         self.thread = QThread()
         self.worker.moveToThread(self.thread)
@@ -179,7 +163,6 @@ class DetectionDisplay(QWidget):
         self.thread.quit()
         self.thread.wait()
         event.accept()
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
