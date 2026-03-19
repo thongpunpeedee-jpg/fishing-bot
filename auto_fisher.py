@@ -71,7 +71,7 @@ class AutoDetectionWorker(QObject):
                         for m in final:
                             pydirectinput.press(m['key'].lower())
                             # ปรับจาก 0.05 เหลือ 0.001 (เกือบจะทันที)
-                            time.sleep(0.030) 
+                            time.sleep(0.050) 
                     
                     self.state = 3
                     self.last_time = current_time
