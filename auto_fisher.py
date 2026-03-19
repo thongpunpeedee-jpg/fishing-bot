@@ -66,7 +66,6 @@ class AutoDetectionWorker(QObject):
                                 final.append(m)
                         final.sort(key=lambda x: x['x'])
                         
-                        # จังหวะการกดแบบเนียนๆ (แก้ตัวสุดท้ายหลุด)
                         time.sleep(random.uniform(0.1, 0.2)) 
                         for i, m in enumerate(final):
                             key = m['key'].lower()
@@ -96,8 +95,8 @@ class AutoDetectionWorker(QObject):
 class DetectionDisplay(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🎣AUTO🎣 v.2")
-        self.setFixedSize(600, 150)
+        self.setWindowTitle("🎣AUTO🎣 (Ready to use!!)")
+        self.setFixedSize(600, 190)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("background-color: #000;")
         layout = QVBoxLayout()
@@ -107,7 +106,6 @@ class DetectionDisplay(QWidget):
         layout.addWidget(self.label)
         self.setLayout(layout)
         
-        # ตำแหน่งแคปหน้าจอเดิม
         self.monitor = {"top": 825, "left": 750, "width": 420, "height": 85}
         
         self.worker = AutoDetectionWorker(self.monitor)
@@ -118,19 +116,16 @@ class DetectionDisplay(QWidget):
         self.thread.start()
 
     def update_image(self, cv_img):
-        # 1. จัดการเรื่องขนาดภาพและการ Crop เพื่อการซูม
+
         h, w, ch = cv_img.shape
         
-        # ตัดขอบบน-ล่างออกข้างละ 25% และซ้าย-ขวาออกข้างละ 5% เพื่อเน้นตัวหนังสือ
         crop_h = int(h * 0.25)
         crop_w = int(w * 0.05)
-        # ตรวจสอบขอบเขตการ Crop เพื่อป้องกัน Error
         cropped = cv_img[crop_h:h-crop_h, crop_w:w-crop_w].copy() 
         
         new_h, new_w, _ = cropped.shape
         bytes_per_line = ch * new_w
         
-        # 2. 🔥 แก้ไข Error: ใช้ .tobytes() เพื่อให้ PyQt6 อ่านค่าได้ชัวร์
         q_img = QImage(
             cropped.tobytes(), 
             new_w, 
@@ -139,9 +134,8 @@ class DetectionDisplay(QWidget):
             QImage.Format.Format_RGB888
         ).rgbSwapped()
         
-        # 3. ขยายภาพให้เต็มกรอบ 600x150 (ซูมสุดตัว)
         pixmap = QPixmap.fromImage(q_img).scaled(
-            600, 150, 
+            600, 190, 
             Qt.AspectRatioMode.IgnoreAspectRatio, 
             Qt.TransformationMode.SmoothTransformation
         )
