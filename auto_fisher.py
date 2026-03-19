@@ -5,7 +5,7 @@ import mss
 import pydirectinput
 import time
 import keyboard
-import random  # 🔥 เพิ่มการสุ่มเพื่อความเนียน
+import random  # 🔥 เพิ่มสำหรับการสุ่มเวลาให้เนียนขึ้น
 from collections import Counter
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
@@ -69,14 +69,12 @@ class AutoDetectionWorker(QObject):
 
                 elif self.state == 2:
                     all_results = []
-                    # แคปภาพ 6 ครั้งเพื่อความแม่นยำ
                     for _ in range(6):  
                         sct_img = sct.grab(self.monitor)
-                        # ... (ส่วนประมวลผลเหมือนเดิม)
                         frame = np.array(sct_img)
                         temp_bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
                         if self.use_brightness: temp_bgr = self.enhance(temp_bgr)
-                        
+
                         raw_matches = []
                         for key_name, temp_img in self.templates.items():
                             res = cv2.matchTemplate(temp_bgr, temp_img, cv2.TM_CCOEFF_NORMED)
@@ -96,23 +94,29 @@ class AutoDetectionWorker(QObject):
 
                     if all_results:
                         most_common = Counter(all_results).most_common(1)[0][0]
-
+                        
                         if most_common == self.last_result:
                             self.same_count += 1
                         else:
                             self.same_count = 1
                             self.last_result = most_common
 
-                        # --- ส่วนที่ปรับปรุง: การรอและจังหวะกดปุ่ม ---
-                        if self.same_count >= 1:
-                            # 1. รอหลังจากแคปเสร็จ (0.15 - 0.3 วินาที) ไม่ให้กดทันทีจนเกินไป
-                            time.sleep(random.uniform(0.15, 0.3))
+                        # 🔥 ส่วนที่แก้ไข: การกดปุ่มให้แม่นยำและไม่เร็วเกินไป
+                        if self.same_count >= 1:  
+                            # หน่วงก่อนเริ่มกดนิดนึง (0.1 - 0.2 วินาที) ให้ดูเหมือนคน
+                            time.sleep(random.uniform(0.1, 0.2))
 
-                            for key in most_common:
-                                pydirectinput.press(key.lower())
-                                # 2. ความเร็วระหว่างการกดแต่ละปุ่ม (0.08 - 0.15 วินาที)
-                                # ไม่ช้าจนคอมโบหลุด แต่ไม่เร็วเหมือนบอทกด
-                                time.sleep(random.uniform(0.08, 0.15))
+                            for i, key in enumerate(most_common):
+                                # ใช้ keyDown และ keyUp เพื่อจำลองการกดแช่เล็กน้อย (ช่วยให้ติดตัวสุดท้ายง่ายขึ้น)
+                                pydirectinput.keyDown(key.lower())
+                                time.sleep(random.uniform(0.04, 0.06)) # กดค้างไว้ 0.05 วินาทีโดยประมาณ
+                                pydirectinput.keyUp(key.lower())
+                                
+                                # เว้นระยะห่างระหว่างแต่ละปุ่ม
+                                if i < len(most_common) - 1:
+                                    time.sleep(random.uniform(0.08, 0.15)) # หน่วงระหว่างปุ่ม
+                                else:
+                                    time.sleep(0.15) # หน่วงหลังจากตัวสุดท้ายเสร็จ
 
                             self.same_count = 0
                             self.last_result = None
@@ -120,7 +124,6 @@ class AutoDetectionWorker(QObject):
                             self.last_time = current_time
 
                 elif self.state == 3:
-                    # รอหลังจากกดจบชุด ก่อนจะกด 'e' ต่อ
                     if current_time - self.last_time >= 1.1:
                         pydirectinput.press('e')
                         self.state = 1
@@ -132,11 +135,11 @@ class AutoDetectionWorker(QObject):
     def stop(self): 
         self.running = False
 
-# --- ส่วน Class DetectionDisplay (เหมือนเดิม) ---
+# --- ส่วนของการแสดงผล (คงเดิม) ---
 class DetectionDisplay(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🎣AUTO🎣")
+        self.setWindowTitle("🎣AUTO🎣 (test)")
         self.setFixedSize(600, 150)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("background-color: #000;")
