@@ -9,9 +9,6 @@ from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
 from PyQt6.QtGui import QImage, QPixmap
 
-# ตั้งค่าให้ pydirectinput ส่งคำสั่งทันทีโดยไม่รอ (Default คือ 0.1 ซึ่งช้ามาก)
-pydirectinput.PAUSE = 0 
-
 class AutoDetectionWorker(QObject):
     update_preview = pyqtSignal(np.ndarray)
 
@@ -44,14 +41,14 @@ class AutoDetectionWorker(QObject):
                     if keyboard.is_pressed('e'):
                         self.state = 1
                         self.last_time = current_time
-                        time.sleep(0.05) # ปรับลดจาก 0.2 เหลือ 0.05
+                        time.sleep(0.2)
 
-                # State 1: นับถอยหลัง 11 วิ
+                # State 1: นับถอยหลัง 11 วิ (ไม่วาดตัวหนังสือลงภาพแล้ว)
                 elif self.state == 1:
                     if current_time - self.last_time >= self.wait_duration:
                         self.state = 2
 
-                # State 2: Snapshot & Press (ปรับให้รวดเร็วที่สุด)
+                # State 2: Snapshot & Press (ทำแบบรวดเดียว)
                 elif self.state == 2:
                     raw_matches = []
                     for key_name, temp_img in self.templates.items():
@@ -70,7 +67,7 @@ class AutoDetectionWorker(QObject):
                         
                         for m in final:
                             pydirectinput.press(m['key'].lower())
-                            # ปรับจาก 0.05 เหลือ 0.001 (เกือบจะทันที)
+                            # ไม่ต้อง sleep นาน เพื่อความเร็ว
                             time.sleep(0.05) 
                     
                     self.state = 3
@@ -78,16 +75,16 @@ class AutoDetectionWorker(QObject):
 
                 # State 3: กด E อัตโนมัติเพื่อเริ่มรอบใหม่
                 elif self.state == 3:
-                    # ปรับจาก 1.5 วิ เหลือ 1.1 วิ (เร่งจังหวะจบแอนิเมชัน)
-                    if current_time - self.last_time >= 1.1:
+                    # หน่วงเวลาสั้นๆ 1.5 วิเพื่อให้เกมอนิเมชั่นจบ
+                    if current_time - self.last_time >= 1.5:
                         pydirectinput.press('e')
                         self.state = 1
                         self.last_time = time.time()
 
-                # ส่งภาพสดไปที่ Preview
+                # ส่งภาพสดไปที่ Preview โดยไม่มีข้อความรบกวน
                 self.update_preview.emit(bgr)
-                # ปรับลด sleep หลักจาก 0.01 เหลือ 0.001 เพื่อเพิ่มรอบการสแกนต่อวินาที
-                time.sleep(0.001)
+                # ลด sleep ของ loop หลักลงเพื่อให้ตรวจจับไวขึ้น
+                time.sleep(0.01)
 
     def stop(self): self.running = False
 
@@ -125,4 +122,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = DetectionDisplay()
     window.show()
-    sys.exit(app.exec())
+    sys.exit(app.exec())    
