@@ -5,7 +5,7 @@ import mss
 import pydirectinput
 import time
 import keyboard
-import random  # 🔥 เพิ่มสำหรับการสุ่มเวลา
+import random
 from collections import Counter
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
@@ -20,7 +20,7 @@ class AutoDetectionWorker(QObject):
         super().__init__()
         self.running = False
         self.monitor = monitor_settings
-        self.threshold = 0.60  # ปรับจูนความไวการตรวจจับ
+        self.threshold = 0.60 
         self.templates = {}
         for k in ['A', 'W', 'S', 'D']:
             img = cv2.imread(f"{k}.png")
@@ -40,19 +40,16 @@ class AutoDetectionWorker(QObject):
                 bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
                 current_time = time.time()
 
-                # State 0: รอเริ่มครั้งแรกด้วยการกด E
                 if self.state == 0:
                     if keyboard.is_pressed('e'):
                         self.state = 1
                         self.last_time = current_time
                         time.sleep(0.2)
 
-                # State 1: นับถอยหลัง (รอปลาติดเบ็ด)
                 elif self.state == 1:
                     if current_time - self.last_time >= self.wait_duration:
                         self.state = 2
 
-                # State 2: Snapshot & Press (ปรับให้นิ่งและชัวร์ขึ้น)
                 elif self.state == 2:
                     raw_matches = []
                     for key_name, temp_img in self.templates.items():
@@ -69,24 +66,22 @@ class AutoDetectionWorker(QObject):
                                 final.append(m)
                         final.sort(key=lambda x: x['x'])
                         
-                        # --- จังหวะการกดแบบใหม่ (เนียนขึ้น) ---
-                        time.sleep(random.uniform(0.1, 0.2)) # รอจังหวะก่อนเริ่มกด
+                        # จังหวะการกดแบบเนียนๆ (แก้ตัวสุดท้ายหลุด)
+                        time.sleep(random.uniform(0.1, 0.2)) 
                         for i, m in enumerate(final):
                             key = m['key'].lower()
                             pydirectinput.keyDown(key)
-                            time.sleep(random.uniform(0.04, 0.06)) # กดแช่สั้นๆ
+                            time.sleep(random.uniform(0.04, 0.06)) 
                             pydirectinput.keyUp(key)
                             
-                            # หน่วงระหว่างปุ่ม (ตัวท้ายๆ จะไม่รีบจนเกินไป)
                             if i < len(final) - 1:
                                 time.sleep(random.uniform(0.1, 0.18))
                             else:
-                                time.sleep(0.2) # จบตัวสุดท้ายให้นิ่งแป๊บนึง
+                                time.sleep(0.2) 
                     
                     self.state = 3
                     self.last_time = current_time
 
-                # State 3: กด E อัตโนมัติเพื่อเริ่มรอบใหม่
                 elif self.state == 3:
                     if current_time - self.last_time >= 1.5:
                         pydirectinput.press('e')
@@ -101,18 +96,18 @@ class AutoDetectionWorker(QObject):
 class DetectionDisplay(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🎣 ZOOM AUTO - (Ready)")
-        self.setFixedSize(600, 150) # ขนาดหน้าต่างคงเดิม
+        self.setWindowTitle("🎣AUTO🎣 v.2")
+        self.setFixedSize(600, 150)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("background-color: #000;")
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         self.label = QLabel()
-        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter) # จัดรูปให้อยู่ตรงกลาง
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label)
         self.setLayout(layout)
         
-        # ตำแหน่งแคปจอเดิมของคุณ
+        # ตำแหน่งแคปหน้าจอเดิม
         self.monitor = {"top": 825, "left": 750, "width": 420, "height": 85}
         
         self.worker = AutoDetectionWorker(self.monitor)
@@ -123,12 +118,31 @@ class DetectionDisplay(QWidget):
         self.thread.start()
 
     def update_image(self, cv_img):
+        # 1. จัดการเรื่องขนาดภาพและการ Crop เพื่อการซูม
         h, w, ch = cv_img.shape
-        q_img = QImage(cv_img.data, w, h, ch * w, QImage.Format.Format_RGB888).rgbSwapped()
         
+        # ตัดขอบบน-ล่างออกข้างละ 25% และซ้าย-ขวาออกข้างละ 5% เพื่อเน้นตัวหนังสือ
+        crop_h = int(h * 0.25)
+        crop_w = int(w * 0.05)
+        # ตรวจสอบขอบเขตการ Crop เพื่อป้องกัน Error
+        cropped = cv_img[crop_h:h-crop_h, crop_w:w-crop_w].copy() 
+        
+        new_h, new_w, _ = cropped.shape
+        bytes_per_line = ch * new_w
+        
+        # 2. 🔥 แก้ไข Error: ใช้ .tobytes() เพื่อให้ PyQt6 อ่านค่าได้ชัวร์
+        q_img = QImage(
+            cropped.tobytes(), 
+            new_w, 
+            new_h, 
+            bytes_per_line, 
+            QImage.Format.Format_RGB888
+        ).rgbSwapped()
+        
+        # 3. ขยายภาพให้เต็มกรอบ 600x150 (ซูมสุดตัว)
         pixmap = QPixmap.fromImage(q_img).scaled(
-            600, 200, 
-            Qt.AspectRatioMode.KeepAspectRatioByExpanding, # ขยายจนเต็มพื้นที่ (ซูม)
+            600, 150, 
+            Qt.AspectRatioMode.IgnoreAspectRatio, 
             Qt.TransformationMode.SmoothTransformation
         )
         self.label.setPixmap(pixmap)
