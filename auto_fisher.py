@@ -43,12 +43,10 @@ class AutoDetectionWorker(QObject):
                         self.last_time = current_time
                         time.sleep(0.2)
 
-                # State 1: นับถอยหลัง 11 วิ (ไม่วาดตัวหนังสือลงภาพแล้ว)
                 elif self.state == 1:
                     if current_time - self.last_time >= self.wait_duration:
                         self.state = 2
 
-                # State 2: Snapshot & Press (ทำแบบรวดเดียว)
                 elif self.state == 2:
                     raw_matches = []
                     for key_name, temp_img in self.templates.items():
@@ -67,23 +65,18 @@ class AutoDetectionWorker(QObject):
                         
                         for m in final:
                             pydirectinput.press(m['key'].lower())
-                            # ไม่ต้อง sleep นาน เพื่อความเร็ว
                             time.sleep(0.05) 
                     
                     self.state = 3
                     self.last_time = current_time
 
-                # State 3: กด E อัตโนมัติเพื่อเริ่มรอบใหม่
                 elif self.state == 3:
-                    # หน่วงเวลาสั้นๆ 1.5 วิเพื่อให้เกมอนิเมชั่นจบ
                     if current_time - self.last_time >= 1.5:
                         pydirectinput.press('e')
                         self.state = 1
                         self.last_time = time.time()
 
-                # ส่งภาพสดไปที่ Preview โดยไม่มีข้อความรบกวน
                 self.update_preview.emit(bgr)
-                # ลด sleep ของ loop หลักลงเพื่อให้ตรวจจับไวขึ้น
                 time.sleep(0.01)
 
     def stop(self): self.running = False
