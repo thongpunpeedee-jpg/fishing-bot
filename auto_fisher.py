@@ -34,15 +34,31 @@ class AutoDetectionWorker(QObject):
         self.last_result = None
         self.same_count = 0
 
+        self.brightness_level = 1  # 🔆 0=สว่าง,1=ปกติ,2=มืด
+
     def enhance(self, img):
-        alpha = 1.3
-        beta = 30
+        if self.brightness_level == 0:
+            # 🔆 สว่าง
+            alpha, beta = 1.4, 40
+        elif self.brightness_level == 1:
+            # 🌤️ ปกติ
+            return img
+        else:
+            # 🌑 มืดลง
+            alpha, beta = 0.9, -20
+
         return cv2.convertScaleAbs(img, alpha=alpha, beta=beta)
 
     def run(self):
         self.running = True
         with mss.mss() as sct:
             while self.running:
+
+                # 🔆 กด F1 เปลี่ยนระดับแสง
+                if keyboard.is_pressed('f1'):
+                    self.brightness_level = (self.brightness_level + 1) % 3
+                    time.sleep(0.3)
+
                 sct_img = sct.grab(self.monitor)
                 frame = np.array(sct_img)
                 bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
