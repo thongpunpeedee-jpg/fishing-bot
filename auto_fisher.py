@@ -5,6 +5,7 @@ import mss
 import pydirectinput
 import time
 import keyboard
+from collections import Counter
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
 from PyQt6.QtGui import QImage, QPixmap
@@ -27,7 +28,11 @@ class AutoDetectionWorker(QObject):
 
         self.state = 0
         self.last_time = 0
-        self.wait_duration = 10.0  # ✅ เปลี่ยนจาก 11.0 → 10.0
+        self.wait_duration = 10.0
+
+        # 🔥 เพิ่มตัวเช็คความนิ่ง
+        self.last_result = None
+        self.same_count = 0
 
     def run(self):
         self.running = True
@@ -48,28 +53,64 @@ class AutoDetectionWorker(QObject):
                     if current_time - self.last_time >= self.wait_duration:
                         self.state = 2
 
+                # 🔥 แคป 10 รูป + เช็คความนิ่ง
                 elif self.state == 2:
-                    raw_matches = []
-                    for key_name, temp_img in self.templates.items():
-                        res = cv2.matchTemplate(bgr, temp_img, cv2.TM_CCOEFF_NORMED)
-                        loc = np.where(res >= self.threshold)
-                        for pt in zip(*loc[::-1]):
-                            raw_matches.append({'x': pt[0], 'key': key_name, 'score': res[pt[1], pt[0]]})
+                    all_results = []
 
-                    if raw_matches:
-                        final = []
-                        raw_matches.sort(key=lambda x: x['score'], reverse=True)
-                        for m in raw_matches:
-                            if not any(abs(m['x'] - f['x']) < 25 for f in final):
-                                final.append(m)
-                        final.sort(key=lambda x: x['x'])
-                        
-                        for m in final:
-                            pydirectinput.press(m['key'].lower())
-                            time.sleep(0.015) 
-                    
-                    self.state = 3
-                    self.last_time = current_time
+                    for _ in range(10):
+                        sct_img = sct.grab(self.monitor)
+                        frame = np.array(sct_img)
+                        bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+
+                        raw_matches = []
+                        for key_name, temp_img in self.templates.items():
+                            res = cv2.matchTemplate(bgr, temp_img, cv2.TM_CCOEFF_NORMED)
+                            loc = np.where(res >= self.threshold)
+
+                            for pt in zip(*loc[::-1]):
+                                raw_matches.append({
+                                    'x': pt[0],
+                                    'key': key_name,
+                                    'score': res[pt[1], pt[0]]
+                                })
+
+                        if raw_matches:
+                            raw_matches.sort(key=lambda x: x['score'], reverse=True)
+
+                            final = []
+                            for m in raw_matches:
+                                if not any(abs(m['x'] - f['x']) < 25 for f in final):
+                                    final.append(m)
+
+                            final.sort(key=lambda x: x['x'])
+
+                            all_results.append(tuple(m['key'] for m in final))
+
+                        time.sleep(0.005)
+
+                    if all_results:
+                        most_common = Counter(all_results).most_common(1)[0][0]
+
+                        # 🔥 เช็คว่าผลซ้ำไหม
+                        if most_common == self.last_result:
+                            self.same_count += 1
+                        else:
+                            self.same_count = 1
+                            self.last_result = most_common
+
+                        # 🔥 ต้องซ้ำ 2 ครั้งก่อนกด
+                        if self.same_count >= 2:
+                            time.sleep(0.12)  # หน่วงก่อนกด
+
+                            for key in most_common:
+                                pydirectinput.press(key.lower())
+                                time.sleep(0.03)
+
+                            # รีเซ็ต
+                            self.same_count = 0
+                            self.last_result = None
+                            self.state = 3
+                            self.last_time = current_time
 
                 elif self.state == 3:
                     if current_time - self.last_time >= 1.1:
@@ -83,10 +124,11 @@ class AutoDetectionWorker(QObject):
     def stop(self): 
         self.running = False
 
+
 class DetectionDisplay(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🎣 FAST AUTO LOOP")
+        self.setWindowTitle("🎣 SMART AUTO (STABLE)")
         self.setFixedSize(600, 150)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("background-color: #000;")
@@ -116,6 +158,7 @@ class DetectionDisplay(QWidget):
         self.thread.quit()
         self.thread.wait()
         event.accept()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
