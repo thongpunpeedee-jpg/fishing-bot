@@ -9,8 +9,7 @@ from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
 from PyQt6.QtGui import QImage, QPixmap
 
-pydirectinput.PAUSE = 0
-pydirectinput.FAILSAFE = False
+pydirectinput.PAUSE = 0 
 
 class AutoDetectionWorker(QObject):
     update_preview = pyqtSignal(np.ndarray)
@@ -19,109 +18,87 @@ class AutoDetectionWorker(QObject):
         super().__init__()
         self.running = False
         self.monitor = monitor_settings
-        self.threshold = 0.6
-
-        # โหลด template (ขาวดำ = เร็วขึ้น)
+        self.threshold = 0.55 
         self.templates = {}
         for k in ['A', 'W', 'S', 'D']:
-            img = cv2.imread(f"{k}.png", 0)
+            img = cv2.imread(f"{k}.png")
             if img is not None:
                 self.templates[k] = img
 
         self.state = 0
         self.last_time = 0
-        self.wait_duration = 10.0  # ⏱️ 10 วิ
+        self.wait_duration = 10.0  # ✅ เปลี่ยนจาก 11.0 → 10.0
 
     def run(self):
         self.running = True
         with mss.mss() as sct:
             while self.running:
+                sct_img = sct.grab(self.monitor)
+                frame = np.array(sct_img)
+                bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
                 current_time = time.time()
 
-                # ▶ เริ่มด้วยปุ่ม E
                 if self.state == 0:
                     if keyboard.is_pressed('e'):
                         self.state = 1
                         self.last_time = current_time
-                        time.sleep(0.02)
+                        time.sleep(0.05)
 
-                # ⏱️ รอ 10 วิ
                 elif self.state == 1:
                     if current_time - self.last_time >= self.wait_duration:
                         self.state = 2
 
-                # 🔍 แคป + ตรวจ + กด (เร็วสุด)
                 elif self.state == 2:
-                    sct_img = sct.grab(self.monitor)
-                    frame = np.array(sct_img)
-
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY)
-
                     raw_matches = []
-
                     for key_name, temp_img in self.templates.items():
-                        res = cv2.matchTemplate(gray, temp_img, cv2.TM_CCOEFF_NORMED)
+                        res = cv2.matchTemplate(bgr, temp_img, cv2.TM_CCOEFF_NORMED)
                         loc = np.where(res >= self.threshold)
-
                         for pt in zip(*loc[::-1]):
-                            raw_matches.append({
-                                'x': pt[0],
-                                'key': key_name,
-                                'score': res[pt[1], pt[0]]
-                            })
+                            raw_matches.append({'x': pt[0], 'key': key_name, 'score': res[pt[1], pt[0]]})
 
                     if raw_matches:
-                        raw_matches.sort(key=lambda x: x['score'], reverse=True)
-
                         final = []
+                        raw_matches.sort(key=lambda x: x['score'], reverse=True)
                         for m in raw_matches:
-                            if not any(abs(m['x'] - f['x']) < 20 for f in final):
+                            if not any(abs(m['x'] - f['x']) < 25 for f in final):
                                 final.append(m)
-
                         final.sort(key=lambda x: x['x'])
-
-                        # ⚡ กดเร็วจัด
+                        
                         for m in final:
                             pydirectinput.press(m['key'].lower())
-
+                            time.sleep(0.015) 
+                    
                     self.state = 3
                     self.last_time = current_time
 
-                # 🔁 วนรอบใหม่
                 elif self.state == 3:
-                    if current_time - self.last_time >= 1.0:
+                    if current_time - self.last_time >= 1.1:
                         pydirectinput.press('e')
                         self.state = 1
                         self.last_time = time.time()
 
-                # 📺 preview
-                sct_img = sct.grab(self.monitor)
-                frame = np.array(sct_img)
-                bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
                 self.update_preview.emit(bgr)
-
                 time.sleep(0.001)
 
-    def stop(self):
+    def stop(self): 
         self.running = False
-
 
 class DetectionDisplay(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🎣 FAST AUTO 10s")
+        self.setWindowTitle("🎣 FAST AUTO LOOP")
         self.setFixedSize(600, 150)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("background-color: #000;")
 
         layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
         self.label = QLabel()
         layout.addWidget(self.label)
         self.setLayout(layout)
-
-        # 📍 ปรับตำแหน่งแคป (สำคัญมาก)
+        
         self.monitor = {"top": 825, "left": 750, "width": 420, "height": 85}
-
+        
         self.worker = AutoDetectionWorker(self.monitor)
         self.thread = QThread()
         self.worker.moveToThread(self.thread)
@@ -139,7 +116,6 @@ class DetectionDisplay(QWidget):
         self.thread.quit()
         self.thread.wait()
         event.accept()
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
