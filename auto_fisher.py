@@ -19,8 +19,9 @@ class AutoDetectionWorker(QObject):
         super().__init__()
         self.running = False
         self.monitor = monitor_settings
-        self.threshold = 0.55 
+        self.threshold = 0.65  
         self.templates = {}
+
         for k in ['A', 'W', 'S', 'D']:
             img = cv2.imread(f"{k}.png")
             if img is not None:
@@ -30,9 +31,13 @@ class AutoDetectionWorker(QObject):
         self.last_time = 0
         self.wait_duration = 10.0
 
-        # 🔥 เพิ่มตัวเช็คความนิ่ง
         self.last_result = None
         self.same_count = 0
+
+    def enhance(self, img):
+        alpha = 1.3
+        beta = 30
+        return cv2.convertScaleAbs(img, alpha=alpha, beta=beta)
 
     def run(self):
         self.running = True
@@ -41,6 +46,9 @@ class AutoDetectionWorker(QObject):
                 sct_img = sct.grab(self.monitor)
                 frame = np.array(sct_img)
                 bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+
+                bgr = self.enhance(bgr)
+
                 current_time = time.time()
 
                 if self.state == 0:
@@ -53,14 +61,15 @@ class AutoDetectionWorker(QObject):
                     if current_time - self.last_time >= self.wait_duration:
                         self.state = 2
 
-                # 🔥 แคป 10 รูป + เช็คความนิ่ง
                 elif self.state == 2:
                     all_results = []
 
-                    for _ in range(10):
+                    for _ in range(6):  
                         sct_img = sct.grab(self.monitor)
                         frame = np.array(sct_img)
                         bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+
+                        bgr = self.enhance(bgr)
 
                         raw_matches = []
                         for key_name, temp_img in self.templates.items():
@@ -79,11 +88,10 @@ class AutoDetectionWorker(QObject):
 
                             final = []
                             for m in raw_matches:
-                                if not any(abs(m['x'] - f['x']) < 25 for f in final):
+                                if not any(abs(m['x'] - f['x']) < 35 for f in final):
                                     final.append(m)
 
                             final.sort(key=lambda x: x['x'])
-
                             all_results.append(tuple(m['key'] for m in final))
 
                         time.sleep(0.005)
@@ -91,22 +99,19 @@ class AutoDetectionWorker(QObject):
                     if all_results:
                         most_common = Counter(all_results).most_common(1)[0][0]
 
-                        # 🔥 เช็คว่าผลซ้ำไหม
                         if most_common == self.last_result:
                             self.same_count += 1
                         else:
                             self.same_count = 1
                             self.last_result = most_common
 
-                        # 🔥 ต้องซ้ำ 2 ครั้งก่อนกด
-                        if self.same_count >= 2:
-                            time.sleep(0.12)  # หน่วงก่อนกด
+                        if self.same_count >= 1:  
+                            time.sleep(0.1)
 
                             for key in most_common:
                                 pydirectinput.press(key.lower())
                                 time.sleep(0.03)
 
-                            # รีเซ็ต
                             self.same_count = 0
                             self.last_result = None
                             self.state = 3
@@ -128,7 +133,7 @@ class AutoDetectionWorker(QObject):
 class DetectionDisplay(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🎣 SMART AUTO (STABLE)")
+        self.setWindowTitle("🎣AUTO🎣 (Ready to use!!)")
         self.setFixedSize(600, 150)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("background-color: #000;")
