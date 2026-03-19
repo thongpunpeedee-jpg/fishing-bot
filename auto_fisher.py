@@ -5,13 +5,9 @@ import mss
 import pydirectinput
 import time
 import keyboard
-import random  # 🔥 เพิ่มสำหรับการสุ่มเวลาให้เนียนขึ้น
-from collections import Counter
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
 from PyQt6.QtGui import QImage, QPixmap
-
-pydirectinput.PAUSE = 0 
 
 class AutoDetectionWorker(QObject):
     update_preview = pyqtSignal(np.ndarray)
@@ -20,9 +16,8 @@ class AutoDetectionWorker(QObject):
         super().__init__()
         self.running = False
         self.monitor = monitor_settings
-        self.threshold = 0.65  
+        self.threshold = 0.55 
         self.templates = {}
-
         for k in ['A', 'W', 'S', 'D']:
             img = cv2.imread(f"{k}.png")
             if img is not None:
@@ -30,116 +25,73 @@ class AutoDetectionWorker(QObject):
 
         self.state = 0
         self.last_time = 0
-        self.wait_duration = 10.0
-        self.last_result = None
-        self.same_count = 0
-        self.use_brightness = True
-
-    def enhance(self, img):
-        alpha = 1.3
-        beta = 30
-        return cv2.convertScaleAbs(img, alpha=alpha, beta=beta)
+        self.wait_duration = 11.0 
 
     def run(self):
         self.running = True
         with mss.mss() as sct:
             while self.running:
-                if keyboard.is_pressed('f1'):
-                    self.use_brightness = not self.use_brightness
-                    time.sleep(0.3)
-
                 sct_img = sct.grab(self.monitor)
                 frame = np.array(sct_img)
                 bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-
-                if self.use_brightness:
-                    bgr = self.enhance(bgr)
-
                 current_time = time.time()
 
+                # State 0: รอเริ่มครั้งแรกด้วยการกด E
                 if self.state == 0:
                     if keyboard.is_pressed('e'):
                         self.state = 1
                         self.last_time = current_time
-                        time.sleep(0.05)
+                        time.sleep(0.2)
 
+                # State 1: นับถอยหลัง 11 วิ (ไม่วาดตัวหนังสือลงภาพแล้ว)
                 elif self.state == 1:
                     if current_time - self.last_time >= self.wait_duration:
                         self.state = 2
 
+                # State 2: Snapshot & Press (ทำแบบรวดเดียว)
                 elif self.state == 2:
-                    all_results = []
-                    for _ in range(6):  
-                        sct_img = sct.grab(self.monitor)
-                        frame = np.array(sct_img)
-                        temp_bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-                        if self.use_brightness: temp_bgr = self.enhance(temp_bgr)
+                    raw_matches = []
+                    for key_name, temp_img in self.templates.items():
+                        res = cv2.matchTemplate(bgr, temp_img, cv2.TM_CCOEFF_NORMED)
+                        loc = np.where(res >= self.threshold)
+                        for pt in zip(*loc[::-1]):
+                            raw_matches.append({'x': pt[0], 'key': key_name, 'score': res[pt[1], pt[0]]})
 
-                        raw_matches = []
-                        for key_name, temp_img in self.templates.items():
-                            res = cv2.matchTemplate(temp_bgr, temp_img, cv2.TM_CCOEFF_NORMED)
-                            loc = np.where(res >= self.threshold)
-                            for pt in zip(*loc[::-1]):
-                                raw_matches.append({'x': pt[0], 'key': key_name, 'score': res[pt[1], pt[0]]})
-
-                        if raw_matches:
-                            raw_matches.sort(key=lambda x: x['score'], reverse=True)
-                            final = []
-                            for m in raw_matches:
-                                if not any(abs(m['x'] - f['x']) < 35 for f in final):
-                                    final.append(m)
-                            final.sort(key=lambda x: x['x'])
-                            all_results.append(tuple(m['key'] for m in final))
-                        time.sleep(0.005)
-
-                    if all_results:
-                        most_common = Counter(all_results).most_common(1)[0][0]
+                    if raw_matches:
+                        final = []
+                        raw_matches.sort(key=lambda x: x['score'], reverse=True)
+                        for m in raw_matches:
+                            if not any(abs(m['x'] - f['x']) < 25 for f in final):
+                                final.append(m)
+                        final.sort(key=lambda x: x['x'])
                         
-                        if most_common == self.last_result:
-                            self.same_count += 1
-                        else:
-                            self.same_count = 1
-                            self.last_result = most_common
+                        for m in final:
+                            pydirectinput.press(m['key'].lower())
+                            # ไม่ต้อง sleep นาน เพื่อความเร็ว
+                            time.sleep(0.05) 
+                    
+                    self.state = 3
+                    self.last_time = current_time
 
-                        # 🔥 ส่วนที่แก้ไข: การกดปุ่มให้แม่นยำและไม่เร็วเกินไป
-                        if self.same_count >= 1:  
-                            # หน่วงก่อนเริ่มกดนิดนึง (0.1 - 0.2 วินาที) ให้ดูเหมือนคน
-                            time.sleep(random.uniform(0.1, 0.2))
-
-                            for i, key in enumerate(most_common):
-                                # ใช้ keyDown และ keyUp เพื่อจำลองการกดแช่เล็กน้อย (ช่วยให้ติดตัวสุดท้ายง่ายขึ้น)
-                                pydirectinput.keyDown(key.lower())
-                                time.sleep(random.uniform(0.04, 0.06)) # กดค้างไว้ 0.05 วินาทีโดยประมาณ
-                                pydirectinput.keyUp(key.lower())
-                                
-                                # เว้นระยะห่างระหว่างแต่ละปุ่ม
-                                if i < len(most_common) - 1:
-                                    time.sleep(random.uniform(0.08, 0.15)) # หน่วงระหว่างปุ่ม
-                                else:
-                                    time.sleep(0.15) # หน่วงหลังจากตัวสุดท้ายเสร็จ
-
-                            self.same_count = 0
-                            self.last_result = None
-                            self.state = 3
-                            self.last_time = current_time
-
+                # State 3: กด E อัตโนมัติเพื่อเริ่มรอบใหม่
                 elif self.state == 3:
-                    if current_time - self.last_time >= 1.1:
+                    # หน่วงเวลาสั้นๆ 1.5 วิเพื่อให้เกมอนิเมชั่นจบ
+                    if current_time - self.last_time >= 1.5:
                         pydirectinput.press('e')
                         self.state = 1
                         self.last_time = time.time()
 
+                # ส่งภาพสดไปที่ Preview โดยไม่มีข้อความรบกวน
                 self.update_preview.emit(bgr)
-                time.sleep(0.001)
+                # ลด sleep ของ loop หลักลงเพื่อให้ตรวจจับไวขึ้น
+                time.sleep(0.01)
 
-    def stop(self): 
-        self.running = False
+    def stop(self): self.running = False
 
-# --- ส่วนของการแสดงผล (คงเดิม) ---
 class DetectionDisplay(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🎣AUTO🎣(test)")
+        self.setWindowTitle("🎣 FAST AUTO LOOP")
         self.setFixedSize(600, 150)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("background-color: #000;")
@@ -148,7 +100,9 @@ class DetectionDisplay(QWidget):
         self.label = QLabel()
         layout.addWidget(self.label)
         self.setLayout(layout)
+        
         self.monitor = {"top": 825, "left": 750, "width": 420, "height": 85}
+        
         self.worker = AutoDetectionWorker(self.monitor)
         self.thread = QThread()
         self.worker.moveToThread(self.thread)
@@ -162,13 +116,10 @@ class DetectionDisplay(QWidget):
         self.label.setPixmap(QPixmap.fromImage(q_img).scaled(600, 150, Qt.AspectRatioMode.KeepAspectRatio))
 
     def closeEvent(self, event):
-        self.worker.stop()
-        self.thread.quit()
-        self.thread.wait()
-        event.accept()
+        self.worker.stop(); self.thread.quit(); self.thread.wait(); event.accept()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = DetectionDisplay()
     window.show()
-    sys.exit(app.exec())
+    sys.exit(app.exec())    
