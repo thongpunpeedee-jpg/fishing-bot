@@ -19,7 +19,6 @@ MY_PC_HWID = "69870546-78D9-BD81-B324-08BFB8BA48FF  \R"
 
 def get_hwid():
     try:
-        # ดึง UUID และจัดการให้เป็นมาตรฐานเดียวกัน (ตัวพิมพ์ใหญ่และไม่มีช่องว่าง)
         cmd = 'wmic csproduct get uuid'
         uuid = str(subprocess.check_output(cmd, shell=True))
         return uuid.split('\\r\\n')[1].strip().upper()
