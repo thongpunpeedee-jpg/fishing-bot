@@ -6,6 +6,7 @@ import pydirectinput
 import time
 import keyboard
 import random
+from collections import Counter
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
 from PyQt6.QtGui import QImage, QPixmap
@@ -59,25 +60,38 @@ class AutoDetectionWorker(QObject):
 
                     if raw_matches:
                         final = []
+                        # เรียงตามคะแนนความเหมือนก่อน
                         raw_matches.sort(key=lambda x: x['score'], reverse=True)
                         for m in raw_matches:
-                            if not any(abs(m['x'] - f['x']) < 30 for f in final):
+                            # ปรับระยะห่างเป็น 25 เพื่อไม่ให้ทับซ้อนกันมากเกินไป
+                            if not any(abs(m['x'] - f['x']) < 25 for f in final):
                                 final.append(m)
+                        
+                        # เรียงจากซ้ายไปขวาตามตำแหน่ง X
                         final.sort(key=lambda x: x['x'])
                         
-                        time.sleep(random.uniform(0.1, 0.2)) 
+                        # หน่วงก่อนเริ่มกดนิดนึง
+                        time.sleep(random.uniform(0.1, 0.15)) 
+                        
                         for i, m in enumerate(final):
                             key = m['key'].lower()
+                            # ป้องกันปุ่มค้างด้วยการใช้ press แทนในบางจังหวะ 
+                            # หรือใช้ keyDown/Up แบบคุมเวลาให้ชัวร์
                             pydirectinput.keyDown(key)
-                            time.sleep(random.uniform(0.04, 0.06)) 
+                            time.sleep(random.uniform(0.05, 0.07)) 
                             pydirectinput.keyUp(key)
+                            
                             if i < len(final) - 1:
-                                time.sleep(random.uniform(0.1, 0.18))
-                            else:
-                                time.sleep(0.2) 
+                                time.sleep(random.uniform(0.12, 0.18))
+                        
+                        # หลังจากกดครบทุกตัว ให้รอเซิร์ฟเวอร์ตอบสนอง
+                        time.sleep(0.3)
+                        self.state = 3
+                        self.last_time = time.time()
                     
-                    self.state = 3
-                    self.last_time = current_time
+                    # ถ้าสแกนไม่เจออะไรเลยใน State 2 ให้รอแป๊บนึงแล้วสแกนใหม่ (ป้องกันบอทค้าง)
+                    else:
+                        time.sleep(0.1)
 
                 elif self.state == 3:
                     if current_time - self.last_time >= 1.5:
@@ -93,12 +107,10 @@ class AutoDetectionWorker(QObject):
 class DetectionDisplay(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🎣 AUTO KUY - (Ready)")
-        # ปรับความสูงหน้าต่างให้เล็กลงหน่อยเพื่อให้ดู "พอดีกรอบ" มากขึ้น
-        self.setFixedSize(600, 140) 
+        self.setWindowTitle("🎣 SUPER ZOOM AUTO")
+        self.setFixedSize(600, 190)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("background-color: #000;")
-        
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         self.label = QLabel()
@@ -106,8 +118,8 @@ class DetectionDisplay(QWidget):
         layout.addWidget(self.label)
         self.setLayout(layout)
         
-        # พิกัดการสแกนเดิมของคุณ
-        self.monitor = {"top": 825, "left": 750, "width": 420, "height": 85}
+        # ปรับขอบเขตการมองเห็นให้กว้างขึ้นนิดหน่อย เผื่อตัว A มันอยู่ริม
+        self.monitor = {"top": 825, "left": 750, "width": 450, "height": 85}
         
         self.worker = AutoDetectionWorker(self.monitor)
         self.thread = QThread()
@@ -118,11 +130,10 @@ class DetectionDisplay(QWidget):
 
     def update_image(self, cv_img):
         h, w, ch = cv_img.shape
-        
-        # 🔥 ส่วนสำคัญ: Crop เน้นเฉพาะตัวอักษรเพื่อให้ซูมพอดีกรอบที่สุด
-        # ตัดขอบบน-ล่างออกเพื่อให้เหลือแต่แถวตัวอักษร (ปรับค่า 0.10 ถึง 0.15 ตามความชอบ)
-        crop_v = int(h * 0.10) 
-        cropped = cv_img[crop_v:h-crop_v, :].copy() 
+        # ยืดภาพให้เต็มกรอบแบบที่ต้องการ
+        crop_h = int(h * 0.20) # ลดการ crop ลงนิดนึงเพื่อให้เห็นขอบชัดขึ้น
+        crop_w = int(w * 0.02)
+        cropped = cv_img[crop_h:h-crop_h, crop_w:w-crop_w].copy() 
         
         new_h, new_w, _ = cropped.shape
         bytes_per_line = ch * new_w
@@ -135,10 +146,9 @@ class DetectionDisplay(QWidget):
             QImage.Format.Format_RGB888
         ).rgbSwapped()
         
-        # 🔥 ใช้ KeepAspectRatio เพื่อให้ภาพไม่ยืด และขยายให้เต็มความกว้าง 600
         pixmap = QPixmap.fromImage(q_img).scaled(
-            600, 140, 
-            Qt.AspectRatioMode.KeepAspectRatio, 
+            610, 190, 
+            Qt.AspectRatioMode.IgnoreAspectRatio, 
             Qt.TransformationMode.SmoothTransformation
         )
         self.label.setPixmap(pixmap)
