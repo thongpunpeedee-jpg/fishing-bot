@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout,
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
 from PyQt6.QtGui import QImage, QPixmap
 
-# --- ตั้งค่า SERVER (แก้ลิงก์ ngrok ตรงนี้) ---
+# --- ตั้งค่า SERVER ---
 SERVER_URL = "https://rounded-unsurrendered-cherri.ngrok-free.dev/auth"
 pydirectinput.PAUSE = 0
 
@@ -18,20 +18,20 @@ def get_hwid():
 class KeyBox(QLabel):
     def __init__(self):
         super().__init__()
-        self.setFixedSize(60, 75)
+        self.setFixedSize(55, 65)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setStyleSheet("background-color: #2b2b2b; color: white; font-size: 20px; border-radius: 8px; border: 3px solid #00ffff;")
+        self.setStyleSheet("background-color: #2b2b2b; color: white; font-size: 18px; border-radius: 5px; border: 2px solid #00ffff;")
 
     def glow(self, text):
         self.setText(text)
-        self.setStyleSheet("background-color: #2b2b2b; color: #00ffff; font-size: 20px; border-radius: 8px; border: 3px solid #00ffff;")
+        self.setStyleSheet("background-color: #2b2b2b; color: #00ffff; font-size: 18px; border-radius: 5px; border: 2px solid #00ffff;")
 
     def press_effect(self):
-        self.setStyleSheet("background-color: #444; color: white; font-size: 20px; border-radius: 8px; border: 3px solid #00ffff;")
+        self.setStyleSheet("background-color: #00ffff; color: black; font-size: 18px; border-radius: 5px; border: 2px solid #fff;")
 
     def clear(self):
         self.setText("")
-        self.setStyleSheet("background-color: #2b2b2b; color: white; font-size: 20px; border-radius: 8px; border: 3px solid #00ffff;")
+        self.setStyleSheet("background-color: #2b2b2b; color: white; font-size: 18px; border-radius: 5px; border: 2px solid #00ffff;")
 
 class Worker(QObject):
     update_preview = pyqtSignal(np.ndarray)
@@ -43,13 +43,13 @@ class Worker(QObject):
         super().__init__()
         self.monitor = monitor
         self.running = False
-        self.threshold = 0.60 
+        self.threshold = 0.65  # ปรับความแม่นยำขึ้นเล็กน้อย
         self.templates = {}
         for k in ['A', 'W', 'S', 'D']:
             img = cv2.imread(f"{k}.png")
             if img is not None: self.templates[k] = img
         self.state = 0 
-        self.wait_duration = 11.0 
+        self.wait_duration = 11.0  # รอ 11 วินาทีตามที่ต้องการ
 
     def run(self):
         self.running = True
@@ -85,7 +85,9 @@ class Worker(QObject):
                             final = []
                             matches.sort(key=lambda x: x['score'], reverse=True)
                             for m in matches:
-                                if not any(abs(m['x'] - f['x']) < 30 for f in final): final.append(m)
+                                # ปรับระยะห่างระหว่างปุ่มให้เล็กลง (25px) เพื่อให้เก็บครบทุกปุ่มในแถว
+                                if not any(abs(m['x'] - f['x']) < 25 for f in final): 
+                                    final.append(m)
                             final.sort(key=lambda x: x['x'])
                             
                             self.update_ui_keys.emit([m['key'] for m in final])
@@ -93,8 +95,11 @@ class Worker(QObject):
                             for i, m in enumerate(final):
                                 self.press_index.emit(i)
                                 pydirectinput.press(m['key'].lower())
-                                time.sleep(random.uniform(0.06, 0.12))
+                                time.sleep(random.uniform(0.05, 0.10)) # กดไวขึ้นเล็กน้อย
                             self.state, self.last_time = 3, now
+                        else:
+                            # ถ้าสแกนไม่เจอ ให้ลองสแกนซ้ำไปเรื่อยๆ จนกว่าจะเจอหรือหมดเวลา
+                            pass
 
                     elif self.state == 3:
                         if now - self.last_time >= 1.5:
@@ -103,13 +108,12 @@ class Worker(QObject):
 
                     self.update_preview.emit(bgr)
                 except: pass
-                time.sleep(0.005)
+                time.sleep(0.01)
 
 class App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Auto Fisher Pro + Countdown")
-        # --- ขนาดหน้าต่าง 380x320 ตามเดิมที่คุณชอบ ---
+        self.setWindowTitle("กูท้อแล้วอย่าบัค")
         self.setFixedSize(380, 320)
         self.setStyleSheet("background-color: #111; color: white;")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
@@ -117,7 +121,7 @@ class App(QWidget):
         layout = QVBoxLayout(self)
         self.status_label = QLabel("Initializing...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #00ffff; margin-bottom: 10px;")
+        self.status_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #00ffff;")
         layout.addWidget(self.status_label)
 
         self.key_row = QHBoxLayout()
@@ -125,17 +129,16 @@ class App(QWidget):
         for box in self.boxes: self.key_row.addWidget(box)
         layout.addLayout(self.key_row)
 
-        # --- ส่วน Preview ปรับให้พอดีกับพิกัด 280x85 ---
         self.preview_label = QLabel()
-        self.preview_label.setFixedSize(350, 100) # ช่องโชว์
+        self.preview_label.setFixedSize(350, 100) 
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setStyleSheet("border: 2px solid #333; background: #000; border-radius: 4px;")
+        self.preview_label.setStyleSheet("border: 2px solid #00ffff; background: #000; border-radius: 5px;")
         layout.addWidget(self.preview_label)
 
-        # --- พิกัดหน้าจอเดิมที่คุณตั้งไว้ ---
-        self.monitor = {"top": 820, "left": 790, "width": 280, "height": 85}
+        # --- ปรับพิกัด MONITOR ให้ตรงกับแถบปุ่มในรูปภาพ ---
+        # เลื่อน 'top' และ 'left' ให้ตรงกับตำแหน่งแถบดำในจอเกมของคุณ
+        self.monitor = {"top": 815, "left": 780, "width": 300, "height": 90}
         
-        # ตรวจสอบสิทธิ์ (Authentication)
         hwid = get_hwid()
         key, ok = QInputDialog.getText(self, "License", f"HWID: {hwid}\nEnter Key:")
         if ok:
@@ -144,10 +147,10 @@ class App(QWidget):
                 if res.get("status") == "ok":
                     self.start_bot()
                 else:
-                    QMessageBox.critical(self, "Error", "Invalid Key or already used!")
+                    QMessageBox.critical(self, "Error", "Invalid Key!")
                     sys.exit()
             except:
-                QMessageBox.critical(self, "Error", "Cannot connect to Server!")
+                QMessageBox.critical(self, "Error", "Server Connection Error!")
                 sys.exit()
         else: sys.exit()
 
@@ -163,13 +166,12 @@ class App(QWidget):
         self.thread.start()
 
     def update_image(self, cv_img):
-        # แก้ไขให้ภาพ Preview พอดีเป๊ะ ไม่มีการ Crop หรือ Scaled จนเพี้ยน
         try:
             h, w, ch = cv_img.shape
             q_img = QImage(cv_img.tobytes(), w, h, ch*w, QImage.Format.Format_RGB888).rgbSwapped()
             pixmap = QPixmap.fromImage(q_img)
-            # แสดงขนาดจริง (280x85) ตรงกลางช่อง Preview
-            self.preview_label.setPixmap(pixmap)
+            # แสดงภาพแบบพอดีกรอบ Preview
+            self.preview_label.setPixmap(pixmap.scaled(350, 100, Qt.AspectRatioMode.KeepAspectRatio))
         except: pass
 
     def update_keys_ui(self, key_list):
