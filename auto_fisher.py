@@ -86,7 +86,7 @@ class Worker(QObject):
         super().__init__()
         self.monitor = monitor
         self.running = False
-        self.threshold = 0.45 
+        self.threshold = 0.65 
         self.templates = {}
         for k in ['A', 'W', 'S', 'D']:
             img = cv2.imread(f"{k}.png")
@@ -179,7 +179,7 @@ class App(QWidget):
         self.admin_btn.clicked.connect(self.show_tuning)
         self.main_layout.addWidget(self.admin_btn)
 
-        self.monitor = {"top": 825, "left": 805, "width": 270, "height": 75}
+        self.monitor = {"top": 825, "left": 815, "width": 270, "height": 75}
         self.tune_win = TuningWindow(self.monitor)
         self.tune_win.settings_changed.connect(self.update_config)
 
