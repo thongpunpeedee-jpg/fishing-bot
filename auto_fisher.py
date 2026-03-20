@@ -43,13 +43,13 @@ class Worker(QObject):
         super().__init__()
         self.monitor = monitor
         self.running = False
-        self.threshold = 0.50 
+        self.threshold = 0.60 
         self.templates = {}
         for k in ['A', 'W', 'S', 'D']:
             img = cv2.imread(f"{k}.png")
             if img is not None: self.templates[k] = img
         self.state = 0 
-        self.wait_duration = 10.0 
+        self.wait_duration = 11.0 
 
     def run(self):
         self.running = True
