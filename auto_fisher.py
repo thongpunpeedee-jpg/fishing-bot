@@ -19,8 +19,7 @@ class AutoDetectionWorker(QObject):
         super().__init__()
         self.running = False
         self.monitor = monitor_settings
-        # 🎯 ปรับ Threshold ลงมานิดนึงเป็น 0.55 เพื่อให้จับภาพได้ง่ายขึ้นในหลายสภาพแสง
-        self.threshold = 0.55 
+        self.threshold = 0.60 
         self.templates = {}
         for k in ['A', 'W', 'S', 'D']:
             img = cv2.imread(f"{k}.png")
@@ -51,7 +50,6 @@ class AutoDetectionWorker(QObject):
                         self.state = 2
 
                 elif self.state == 2:
-                    # 🔄 ระบบวน Loop สแกนจนกว่าจะเจอ (Retry Logic)
                     raw_matches = []
                     for key_name, temp_img in self.templates.items():
                         res = cv2.matchTemplate(bgr, temp_img, cv2.TM_CCOEFF_NORMED)
@@ -63,29 +61,23 @@ class AutoDetectionWorker(QObject):
                         final = []
                         raw_matches.sort(key=lambda x: x['score'], reverse=True)
                         for m in raw_matches:
-                            # 📏 ปรับระยะห่างเหลือ 20 เพื่อให้เก็บตัวอักษรที่อยู่ชิดกันได้ครบ
-                            if not any(abs(m['x'] - f['x']) < 20 for f in final):
+                            if not any(abs(m['x'] - f['x']) < 30 for f in final):
                                 final.append(m)
-                        
                         final.sort(key=lambda x: x['x'])
                         
-                        # ⌨️ จังหวะการกด: เน้นความชัวร์
-                        time.sleep(0.1) 
+                        time.sleep(random.uniform(0.1, 0.2)) 
                         for i, m in enumerate(final):
                             key = m['key'].lower()
                             pydirectinput.keyDown(key)
-                            time.sleep(random.uniform(0.05, 0.08)) # กดแช่นานขึ้นนิดนึง
+                            time.sleep(random.uniform(0.04, 0.06)) 
                             pydirectinput.keyUp(key)
-                            
                             if i < len(final) - 1:
-                                time.sleep(random.uniform(0.1, 0.15))
-                        
-                        time.sleep(0.5) # รอให้เกมรับอินพุตจบจริงๆ
-                        self.state = 3
-                        self.last_time = time.time()
-                    else:
-                        # ถ้าสแกนไม่เจอ ให้หน่วงนิดเดียวแล้ววน loop มาสแกนใหม่ทันที (ห้ามเปลี่ยน State)
-                        time.sleep(0.05) 
+                                time.sleep(random.uniform(0.1, 0.18))
+                            else:
+                                time.sleep(0.2) 
+                    
+                    self.state = 3
+                    self.last_time = current_time
 
                 elif self.state == 3:
                     if current_time - self.last_time >= 1.5:
@@ -101,10 +93,12 @@ class AutoDetectionWorker(QObject):
 class DetectionDisplay(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("🎣AUTO🎣 พ่อมึงDIEEEE")
-        self.setFixedSize(600, 190)
+        self.setWindowTitle("🎣 AUTO KUY - (Ready)")
+        # ปรับความสูงหน้าต่างให้เล็กลงหน่อยเพื่อให้ดู "พอดีกรอบ" มากขึ้น
+        self.setFixedSize(600, 140) 
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("background-color: #000;")
+        
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         self.label = QLabel()
@@ -112,8 +106,8 @@ class DetectionDisplay(QWidget):
         layout.addWidget(self.label)
         self.setLayout(layout)
         
-        # 📐 ขยายพื้นที่มองให้กว้างขึ้นเป็น 460 เพื่อไม่ให้ตัวอักษรขอบจอหลุด
-        self.monitor = {"top": 825, "left": 730, "width": 460, "height": 85}
+        # พิกัดการสแกนเดิมของคุณ
+        self.monitor = {"top": 825, "left": 750, "width": 420, "height": 85}
         
         self.worker = AutoDetectionWorker(self.monitor)
         self.thread = QThread()
@@ -124,11 +118,27 @@ class DetectionDisplay(QWidget):
 
     def update_image(self, cv_img):
         h, w, ch = cv_img.shape
-        # การยืดภาพ (Stretch)
-        q_img = QImage(cv_img.data, w, h, ch * w, QImage.Format.Format_RGB888).rgbSwapped()
+        
+        # 🔥 ส่วนสำคัญ: Crop เน้นเฉพาะตัวอักษรเพื่อให้ซูมพอดีกรอบที่สุด
+        # ตัดขอบบน-ล่างออกเพื่อให้เหลือแต่แถวตัวอักษร (ปรับค่า 0.10 ถึง 0.15 ตามความชอบ)
+        crop_v = int(h * 0.10) 
+        cropped = cv_img[crop_v:h-crop_v, :].copy() 
+        
+        new_h, new_w, _ = cropped.shape
+        bytes_per_line = ch * new_w
+        
+        q_img = QImage(
+            cropped.tobytes(), 
+            new_w, 
+            new_h, 
+            bytes_per_line, 
+            QImage.Format.Format_RGB888
+        ).rgbSwapped()
+        
+        # 🔥 ใช้ KeepAspectRatio เพื่อให้ภาพไม่ยืด และขยายให้เต็มความกว้าง 600
         pixmap = QPixmap.fromImage(q_img).scaled(
-            600, 190, 
-            Qt.AspectRatioMode.IgnoreAspectRatio, # ยืดให้เต็มกรอบตามสั่ง
+            600, 140, 
+            Qt.AspectRatioMode.KeepAspectRatio, 
             Qt.TransformationMode.SmoothTransformation
         )
         self.label.setPixmap(pixmap)
