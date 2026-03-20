@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout,
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
 from PyQt6.QtGui import QImage, QPixmap
 
-# --- ตั้งค่า SERVER ---
+# --- SERVER SETTINGS ---
 SERVER_URL = "https://rounded-unsurrendered-cherri.ngrok-free.dev/auth"
 pydirectinput.PAUSE = 0
 
@@ -33,50 +33,6 @@ class KeyBox(QLabel):
         self.setText("")
         self.setStyleSheet("background-color: #1a1a1a; color: #666; font-size: 22px; font-weight: bold; border-radius: 6px; border: 2px solid #333;")
 
-# --- หน้าต่างสำหรับปรับแต่งค่า (เหมือนในรูป) ---
-class TuningWindow(QWidget):
-    settings_changed = pyqtSignal(dict)
-
-    def __init__(self, current_monitor):
-        super().__init__()
-        self.setWindowTitle("Live Tuning - Auth")
-        self.setFixedWidth(250)
-        self.setStyleSheet("background-color: #121212; color: #00ffff;")
-        
-        layout = QFormLayout(self)
-        
-        self.top_input = QLineEdit(str(current_monitor['top']))
-        self.left_input = QLineEdit(str(current_monitor['left']))
-        self.width_input = QLineEdit(str(current_monitor['width']))
-        self.height_input = QLineEdit(str(current_monitor['height']))
-        
-        # ตกแต่ง Input ให้เหมือนในรูป
-        input_style = "background: #1a1a1a; border: 1px solid #333; color: #00ffff; padding: 5px; font-weight: bold;"
-        for inp in [self.top_input, self.left_input, self.width_input, self.height_input]:
-            inp.setStyleSheet(input_style)
-
-        layout.addRow("Top:", self.top_input)
-        layout.addRow("Left:", self.left_input)
-        layout.addRow("Width:", self.width_input)
-        layout.addRow("Height:", self.height_input)
-
-        self.apply_btn = QPushButton("APPLY SETTINGS")
-        self.apply_btn.setStyleSheet("background-color: #00ffff; color: black; font-weight: bold; padding: 10px; margin-top: 10px; border-radius: 5px;")
-        self.apply_btn.clicked.connect(self.emit_settings)
-        layout.addRow(self.apply_btn)
-
-    def emit_settings(self):
-        try:
-            new_monitor = {
-                "top": int(self.top_input.text()),
-                "left": int(self.left_input.text()),
-                "width": int(self.width_input.text()),
-                "height": int(self.height_input.text())
-            }
-            self.settings_changed.emit(new_monitor)
-        except ValueError:
-            pass
-
 class Worker(QObject):
     update_preview = pyqtSignal(np.ndarray)
     update_ui_keys = pyqtSignal(list)
@@ -87,7 +43,7 @@ class Worker(QObject):
         super().__init__()
         self.monitor = monitor
         self.running = False
-        self.threshold = 0.60 
+        self.threshold = 0.55 
         self.templates = {}
         for k in ['A', 'W', 'S', 'D']:
             img = cv2.imread(f"{k}.png")
@@ -108,7 +64,6 @@ class Worker(QObject):
                     bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
                     now = time.time()
 
-                    # Logic การตกปลา (เหมือนเดิม)
                     if self.state == 0:
                         self.update_status.emit("READY (PRESS 'E')")
                         if keyboard.is_pressed('e'):
@@ -146,45 +101,93 @@ class Worker(QObject):
                             self.state, self.last_time = 1, time.time()
 
                     self.update_preview.emit(bgr)
-                except Exception as e: 
-                    pass
+                except: pass
                 time.sleep(0.01)
 
 class App(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Auto Fisher Pro")
-        self.setFixedSize(380, 360) # เพิ่มความสูงเล็กน้อยเผื่อปุ่ม
+        self.setFixedWidth(380)
         self.setStyleSheet("background-color: #0d0d0d; color: white;")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         
-        layout = QVBoxLayout(self)
+        main_layout = QVBoxLayout(self)
+
+        # --- Status & Keys Section ---
         self.status_label = QLabel("Initializing...")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #00ffff; padding: 5px;")
-        layout.addWidget(self.status_label)
+        main_layout.addWidget(self.status_label)
 
         self.key_row = QHBoxLayout()
         self.boxes = [KeyBox() for _ in range(5)]
         for box in self.boxes: self.key_row.addWidget(box)
-        layout.addLayout(self.key_row)
+        main_layout.addLayout(self.key_row)
 
         self.preview_label = QLabel()
-        self.preview_label.setFixedSize(350, 110) 
+        self.preview_label.setFixedSize(350, 90) 
         self.preview_label.setStyleSheet("border: 2px solid #333; background: #000; border-radius: 8px;")
-        layout.addWidget(self.preview_label)
+        main_layout.addWidget(self.preview_label)
 
-        # ปุ่มเปิด Tuning
-        self.tune_btn = QPushButton("OPEN LIVE TUNING")
-        self.tune_btn.setStyleSheet("background: #222; color: #888; border: 1px solid #444; padding: 5px;")
-        self.tune_btn.clicked.connect(self.show_tuning)
-        layout.addWidget(self.tune_btn)
+        # --- TUNING SECTION (Integrated from your image) ---
+        tune_container = QWidget()
+        tune_layout = QFormLayout(tune_container)
+        tune_layout.setContentsMargins(20, 10, 20, 10)
+        tune_layout.setSpacing(10)
 
-        self.monitor = {"top": 820, "left": 775, "width": 320, "height": 80}
-        self.tuning_window = TuningWindow(self.monitor)
-        self.tuning_window.settings_changed.connect(self.apply_new_settings)
+        # สไตล์สำหรับ Input ตามรูป
+        input_style = """
+            QLineEdit {
+                background-color: #1a1a1a; 
+                border: 1px solid #333; 
+                color: #00ffff; 
+                font-size: 16px; 
+                font-weight: bold; 
+                padding: 4px;
+            }
+        """
+        label_style = "color: #00ffff; font-size: 16px; font-weight: bold;"
 
-        # --- AUTH SYSTEM (ส่วนเดิมของคุณ) ---
+        self.top_in = QLineEdit("820")
+        self.left_in = QLineEdit("790")
+        self.width_in = QLineEdit("270")
+        self.height_in = QLineEdit("75")
+
+        for inp in [self.top_in, self.left_in, self.width_in, self.height_in]:
+            inp.setStyleSheet(input_style)
+
+        # สร้าง Label และตั้งสไตล์
+        l1, l2, l3, l4 = QLabel("Top:"), QLabel("Left:"), QLabel("Width:"), QLabel("Height:")
+        for lab in [l1, l2, l3, l4]: lab.setStyleSheet(label_style)
+
+        tune_layout.addRow(l1, self.top_in)
+        tune_layout.addRow(l2, self.left_in)
+        tune_layout.addRow(l3, self.width_in)
+        tune_layout.addRow(l4, self.height_in)
+
+        self.apply_btn = QPushButton("APPLY SETTINGS")
+        self.apply_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #00ffff; 
+                color: black; 
+                font-weight: bold; 
+                font-size: 14px; 
+                padding: 10px; 
+                border-radius: 5px;
+                margin-top: 5px;
+            }
+            QPushButton:pressed { background-color: #00cccc; }
+        """)
+        self.apply_btn.clicked.connect(self.apply_settings)
+        tune_layout.addRow(self.apply_btn)
+
+        main_layout.addWidget(tune_container)
+
+        # Initial Monitor
+        self.monitor = {"top": 820, "left": 790, "width": 270, "height": 75}
+        
+        # Authentication & Start
         self.authenticate()
 
     def authenticate(self):
@@ -199,19 +202,25 @@ class App(QWidget):
                     QMessageBox.critical(self, "Error", "Invalid Key!")
                     sys.exit()
             except:
-                # เพื่อการทดสอบ ถ้าไม่มี server ให้เอาบรรทัดข้างล่างออกและใช้ self.start_bot() แทน
+                # เพื่อการทดสอบ: หากไม่มี server ให้คอมเมนต์ 2 บรรทัดข้างล่าง แล้วเปิด self.start_bot() แทน
                 QMessageBox.critical(self, "Error", "Connection Error!")
                 sys.exit()
         else: sys.exit()
 
-    def show_tuning(self):
-        self.tuning_window.show()
-
-    def apply_new_settings(self, new_monitor):
-        self.monitor = new_monitor
-        if hasattr(self, 'worker'):
-            self.worker.update_monitor(new_monitor)
-        print(f"Updated Monitor: {new_monitor}")
+    def apply_settings(self):
+        try:
+            self.monitor = {
+                "top": int(self.top_in.text()),
+                "left": int(self.left_in.text()),
+                "width": int(self.width_in.text()),
+                "height": int(self.height_in.text())
+            }
+            if hasattr(self, 'worker'):
+                self.worker.update_monitor(self.monitor)
+            self.status_label.setText("SETTINGS APPLIED!")
+            time.sleep(0.5)
+        except ValueError:
+            QMessageBox.warning(self, "Input Error", "กรุณาใส่เฉพาะตัวเลขครับ")
 
     def start_bot(self):
         self.worker = Worker(self.monitor)
