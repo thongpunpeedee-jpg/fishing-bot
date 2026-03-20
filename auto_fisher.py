@@ -150,7 +150,7 @@ class Worker(QObject):
 class App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Auto v3")
+        self.setWindowTitle("Auto v9")
         self.setFixedWidth(380)
         self.setStyleSheet("background-color: #0d0d0d; color: white;")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
