@@ -1,210 +1,185 @@
-import sys
-import cv2
-import numpy as np
-import mss
-import pydirectinput
-import time
-import keyboard
-import random
-import subprocess
-
-from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout, 
-                             QHBoxLayout, QPushButton, QLineEdit, QDialog, QFormLayout)
+import sys, time, random, subprocess
+import cv2, numpy as np, mss, pydirectinput, keyboard, requests
+from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, QInputDialog, QMessageBox
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
 from PyQt6.QtGui import QImage, QPixmap
 
-# --- [ ล็อกสิทธิ์เฉพาะเครื่องของคุณ ] ---
-MY_PC_HWID = "69870546-78D9-BD81-B324-08BFB8BA48FF  \R"
-# --------------------------------------
+SERVER_URL = "http://127.0.0.1:5000/auth"
 
+pydirectinput.PAUSE = 0
+pydirectinput.FAILSAFE = False
+
+# ---------------- HWID ----------------
 def get_hwid():
     try:
-        # ดึง UUID และจัดการให้เป็นมาตรฐานเดียวกัน (ตัวพิมพ์ใหญ่และไม่มีช่องว่าง)
+        # ดึง UUID และจัดการให้เป็นมาตรฐาน (ไม่มีช่องว่าง, ตัวพิมพ์ใหญ่)
         cmd = 'wmic csproduct get uuid'
-        uuid = str(subprocess.check_output(cmd, shell=True))
-        return uuid.split('\\r\\n')[1].strip().upper()
+        output = subprocess.check_output(cmd, shell=True).decode().split('\n')
+        raw_uuid = output[1].strip()
+        return "".join(raw_uuid.split()).upper()
     except:
         return "UNKNOWN"
 
-pydirectinput.PAUSE = 0 
+def check_key(key, hwid):
+    try:
+        # ล้างช่องว่างของ key ก่อนส่ง
+        clean_key = "".join(key.split()).upper()
+        res = requests.post(SERVER_URL, json={"key": clean_key, "hwid": hwid}, timeout=5)
+        return res.json().get("status") == "ok"
+    except Exception as e:
+        print(f"Connection Error: {e}")
+        return False
 
-class KeyBox(QLabel):
-    def __init__(self):
-        super().__init__()
-        self.setFixedSize(60, 75) 
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setStyleSheet("background-color: #2b2b2b; color: white; font-size: 20px; border-radius: 8px; border: 3px solid #00ffff;")
-
-    def glow(self, text):
-        self.setText(text)
-        self.setStyleSheet("background-color: #2b2b2b; color: #00ffff; font-size: 20px; border-radius: 8px; border: 3px solid #00ffff;")
-
-    def press_effect(self):
-        self.setStyleSheet("background-color: #444; color: white; font-size: 20px; border-radius: 8px; border: 3px solid #00ffff;")
-
-    def clear(self):
-        self.setText("")
-        self.setStyleSheet("background-color: #2b2b2b; color: white; font-size: 20px; border-radius: 8px; border: 3px solid #00ffff;")
-
-class SettingsDialog(QDialog):
-    def __init__(self, current_monitor, callback):
-        super().__init__()
-        self.setWindowTitle("Admin: Live Monitor Tuning")
-        self.setFixedWidth(280)
-        # ให้หน้าต่างตั้งค่าอยู่บนสุดเสมอเพื่อให้จูนพิกัดง่าย
-        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
-        self.callback = callback
-        
-        layout = QFormLayout(self)
-        self.inputs = {}
-        for key, val in current_monitor.items():
-            self.inputs[key] = QLineEdit(str(val))
-            self.inputs[key].setStyleSheet("background: #222; color: #00ffff; border: 1px solid #444; padding: 5px;")
-            layout.addRow(f"<b>{key.capitalize()}:</b>", self.inputs[key])
-            
-        self.apply_btn = QPushButton("APPLY CHANGES")
-        self.apply_btn.setStyleSheet("background-color: #00ffff; color: #111; font-weight: bold; height: 35px; border-radius: 5px;")
-        self.apply_btn.clicked.connect(self.apply_settings)
-        layout.addRow(self.apply_btn)
-
-    def apply_settings(self):
-        try:
-            new_vals = {k: int(v.text()) for k, v in self.inputs.items()}
-            self.callback(new_vals)
-        except: pass
-
-class AutoDetectionWorker(QObject):
+# ---------------- Worker ----------------
+class Worker(QObject):
     update_preview = pyqtSignal(np.ndarray)
     update_ui_keys = pyqtSignal(list)
     press_index = pyqtSignal(int)
 
-    def __init__(self, monitor_settings):
+    def __init__(self, monitor, templates):
         super().__init__()
+        self.monitor = monitor
+        self.templates = templates
         self.running = False
-        self.monitor = monitor_settings
-        self.threshold = 0.65 
-        self.templates = {}
-        for k in ['A', 'W', 'S', 'D']:
-            img = cv2.imread(f"{k}.png")
-            if img is not None: self.templates[k] = img
-
-        self.state = 0
+        self.state = 0 # 0: Wait E, 1: Fishing, 2: Scanning, 3: Reset
         self.last_time = 0
-        self.wait_duration = 11.0 
-
-    def update_monitor(self, new_config):
-        self.monitor = new_config
+        self.wait_duration = 10.0 # เวลารอปลากินเบ็ด
 
     def run(self):
         self.running = True
         with mss.mss() as sct:
             while self.running:
-                try:
-                    sct_img = sct.grab(self.monitor)
-                    frame = np.array(sct_img)
-                    bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                img = np.array(sct.grab(self.monitor))
+                bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+                now = time.time()
+
+                if self.state == 0:
+                    if keyboard.is_pressed('e'):
+                        self.state = 1
+                        self.last_time = now
+                        time.sleep(0.2)
+                
+                elif self.state == 1:
+                    if now - self.last_time >= self.wait_duration:
+                        self.state = 2
+                        self.detected_keys = []
+                
+                elif self.state == 2:
+                    matches = []
+                    for key, temp in self.templates.items():
+                        res = cv2.matchTemplate(bgr, temp, cv2.TM_CCOEFF_NORMED)
+                        loc = np.where(res >= 0.65)
+                        for pt in zip(*loc[::-1]):
+                            matches.append({'key': key, 'x': pt[0]})
                     
-                    current_time = time.time()
-                    if self.state == 0:
-                        if keyboard.is_pressed('e'):
-                            self.state = 1
-                            self.last_time = current_time
-                            time.sleep(0.2)
-                    elif self.state == 1:
-                        if current_time - self.last_time >= self.wait_duration: self.state = 2
-                    elif self.state == 2:
-                        matches = []
-                        for key_name, temp_img in self.templates.items():
-                            res = cv2.matchTemplate(bgr, temp_img, cv2.TM_CCOEFF_NORMED)
-                            loc = np.where(res >= self.threshold)
-                            for pt in zip(*loc[::-1]):
-                                matches.append({'x': pt[0], 'key': key_name, 'score': res[pt[1], pt[0]]})
-                        if matches:
-                            final = []
-                            matches.sort(key=lambda x: x['score'], reverse=True)
-                            for m in matches:
-                                if not any(abs(m['x'] - f['x']) < 30 for f in final): final.append(m)
-                            final.sort(key=lambda x: x['x'])
-                            self.update_ui_keys.emit([m['key'] for m in final])
-                            time.sleep(0.1) 
-                            for i, m in enumerate(final):
-                                self.press_index.emit(i)
-                                pydirectinput.press(m['key'].lower())
-                                time.sleep(random.uniform(0.06, 0.12)) 
-                            self.state = 3
-                            self.last_time = current_time
-                    elif self.state == 3:
-                        if current_time - self.last_time >= 1.5:
-                            pydirectinput.press('e')
-                            self.state = 1
-                            self.last_time = time.time()
-                    self.update_preview.emit(bgr)
-                except: pass
-                time.sleep(0.005) 
+                    if matches:
+                        # กรองปุ่มที่ซ้ำกันในตำแหน่งใกล้เคียง
+                        unique_matches = []
+                        matches.sort(key=lambda x: x['x'])
+                        for m in matches:
+                            if not any(abs(m['x'] - u['x']) < 20 for u in unique_matches):
+                                unique_matches.append(m)
+                        
+                        self.update_ui_keys.emit([m['key'] for m in unique_matches])
+                        for i, m in enumerate(unique_matches):
+                            self.press_index.emit(i)
+                            pydirectinput.press(m['key'].lower())
+                            time.sleep(random.uniform(0.07, 0.12))
+                        
+                        self.state = 3
+                        self.last_time = now
+                
+                elif self.state == 3:
+                    if now - self.last_time >= 1.5:
+                        pydirectinput.press('e')
+                        self.state = 1
+                        self.last_time = time.time()
 
-    def stop(self): self.running = False
+                self.update_preview.emit(bgr)
+                time.sleep(0.01)
 
-class DetectionDisplay(QWidget):
+    def stop(self):
+        self.running = False
+
+# ---------------- UI ----------------
+class KeyBox(QLabel):
     def __init__(self):
         super().__init__()
-        self.current_id = get_hwid()
-        self.setWindowTitle("🎣AUTO🎣(Ready)")
-        self.setFixedSize(380, 260)
+        self.setFixedSize(60, 75)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setStyleSheet("background-color:#2b2b2b;color:white;font-size:20px;border-radius:8px;border:3px solid #00ffff")
+
+    def glow(self, text):
+        self.setText(text)
+        self.setStyleSheet("background-color:#2b2b2b;color:#00ffff;font-size:20px;border-radius:8px;border:3px solid #00ffff")
+
+    def press_effect(self):
+        self.setStyleSheet("background-color:#444;color:white;font-size:20px;border-radius:8px;border:3px solid #00ffff")
+
+    def clear(self):
+        self.setText("")
+        self.setStyleSheet("background-color:#2b2b2b;color:white;font-size:20px;border-radius:8px;border:3px solid #00ffff")
+
+class App(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("🎣 Auto Fisher Pro")
+        self.setFixedSize(380, 280)
+        self.setStyleSheet("background:#111;color:white;")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
-        self.setStyleSheet("background-color: #111; color: white;")
         
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(15, 10, 15, 10) 
-        
-        self.key_row = QHBoxLayout()
+        layout = QVBoxLayout()
+        self.label = QLabel("Authenticating...")
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.label)
+
+        self.preview = QLabel()
+        self.preview.setFixedSize(350, 100)
+        self.preview.setStyleSheet("background:#000;border:2px solid #333;")
+        layout.addWidget(self.preview)
+
         self.boxes = [KeyBox() for _ in range(5)]
-        for box in self.boxes: self.key_row.addWidget(box)
-        main_layout.addLayout(self.key_row)
+        h_layout = QHBoxLayout()
+        for box in self.boxes: h_layout.addWidget(box)
+        layout.addLayout(h_layout)
+        self.setLayout(layout)
 
-        self.preview_label = QLabel("Initializing...")
-        self.preview_label.setFixedSize(350, 80)
-        self.preview_label.setStyleSheet("border: 2px solid #333; background: #000; border-radius: 4px;")
-        main_layout.addWidget(self.preview_label)
-
-        # ส่วนตรวจสอบสิทธิ์
-        self.admin_btn = QPushButton()
+        # การตรวจสอบสิทธิ์
+        hwid = get_hwid()
+        key, ok = QInputDialog.getText(self, "License Key", f"Your HWID: {hwid}\nEnter Key:")
         
-        # ตรวจสอบว่า HWID ของเครื่องปัจจุบัน ตรงกับที่คุณให้มาหรือไม่
-        if self.current_id == MY_PC_HWID.upper().strip():
-            self.admin_btn.setText("⚙️ OPEN ADMIN SETTINGS")
-            self.admin_btn.setStyleSheet("background: #008080; color: white; font-weight: bold; height: 35px; border-radius: 5px;")
-            self.admin_btn.setEnabled(True)
+        if ok and check_key(key, hwid):
+            self.label.setText("✅ Status: Authorized")
+            self.start_bot()
         else:
-            self.admin_btn.setText("🔒 LOCKED (UNAUTHORIZED PC)")
-            self.admin_btn.setStyleSheet("background: #222; color: #555; height: 35px; border-radius: 5px;")
-            self.admin_btn.setEnabled(False)
-        
-        self.admin_btn.clicked.connect(self.show_settings)
-        main_layout.addWidget(self.admin_btn)
-        
-        self.setLayout(main_layout)
+            QMessageBox.critical(self, "Error", "Invalid Key or Key already used!")
+            sys.exit()
+
+    def start_bot(self):
         self.monitor = {"top": 820, "left": 790, "width": 280, "height": 85}
+        self.templates = {}
+        for k in ['A', 'W', 'S', 'D']:
+            img = cv2.imread(f"{k}.png")
+            if img is not None: self.templates[k] = img
         
-        self.worker = AutoDetectionWorker(self.monitor)
+        if not self.templates:
+            QMessageBox.warning(self, "Warning", "Template images (A,W,S,D.png) not found!")
+
+        self.worker = Worker(self.monitor, self.templates)
         self.thread = QThread()
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.update_preview.connect(self.update_image)
-        self.worker.update_ui_keys.connect(self.update_keys_ui)
+        self.worker.update_ui_keys.connect(self.update_keys)
         self.worker.press_index.connect(self.animate_press)
         self.thread.start()
-        self.settings_win = None
 
-    def show_settings(self):
-        if not self.settings_win:
-            self.settings_win = SettingsDialog(self.monitor, self.apply_new_config)
-        self.settings_win.show()
+    def update_image(self, img):
+        h, w, ch = img.shape
+        qimg = QImage(img.tobytes(), w, h, ch*w, QImage.Format.Format_RGB888).rgbSwapped()
+        self.preview.setPixmap(QPixmap.fromImage(qimg).scaled(350, 100, Qt.AspectRatioMode.KeepAspectRatio))
 
-    def apply_new_config(self, new_vals):
-        self.monitor = new_vals
-        self.worker.update_monitor(new_vals)
-
-    def update_keys_ui(self, key_list):
+    def update_keys(self, key_list):
         for box in self.boxes: box.clear()
         for i, key in enumerate(key_list):
             if i < len(self.boxes): self.boxes[i].glow(key)
@@ -212,23 +187,8 @@ class DetectionDisplay(QWidget):
     def animate_press(self, index):
         if index < len(self.boxes): self.boxes[index].press_effect()
 
-    def update_image(self, cv_img):
-        try:
-            h, w, ch = cv_img.shape
-            # ปรับ Crop ให้พอดีที่สุด
-            crop_v, crop_h = int(h * 0.20), int(w * 0.05)
-            cropped = cv_img[crop_v:h-crop_v, crop_h:w-crop_h].copy() 
-            new_h, new_w = cropped.shape[:2]
-            q_img = QImage(cropped.tobytes(), new_w, new_h, ch*new_w, QImage.Format.Format_RGB888).rgbSwapped()
-            self.preview_label.setPixmap(QPixmap.fromImage(q_img).scaled(350, 80, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        except: pass
-
-    def closeEvent(self, event):
-        if self.settings_win: self.settings_win.close()
-        self.worker.stop(); self.thread.quit(); self.thread.wait(); event.accept()
-
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = DetectionDisplay()
-    window.show()
+    w = App()
+    w.show()
     sys.exit(app.exec())
