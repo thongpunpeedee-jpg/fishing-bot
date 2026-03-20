@@ -86,7 +86,7 @@ class Worker(QObject):
         super().__init__()
         self.monitor = monitor
         self.running = False
-        self.threshold = 0.60 
+        self.threshold = 0.65 
         self.templates = {}
         for k in ['A', 'W', 'S', 'D']:
             img = cv2.imread(f"{k}.png")
