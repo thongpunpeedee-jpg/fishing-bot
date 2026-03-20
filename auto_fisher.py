@@ -111,7 +111,7 @@ class Worker(QObject):
 class App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Auto Fisher Pro (UI Fix)")
+        self.setWindowTitle("Auto)")
         self.setFixedSize(380, 320)
         self.setStyleSheet("background-color: #111; color: white;")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
