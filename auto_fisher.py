@@ -13,17 +13,16 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout,
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QThread
 from PyQt6.QtGui import QImage, QPixmap
 
-# --- [ นำค่าที่ก๊อปได้จากปุ่ม COPY HWID มาวางที่นี่ ] ---
-AUTHORIZED_HWID = "69870546-78D9-BD81-B324-08BFB8BA48FF  \R" 
-# --------------------------------------------------
+# --- [ ล็อกสิทธิ์เฉพาะเครื่องของคุณ ] ---
+MY_PC_HWID = "69870546-78D9-BD81-B324-08BFB8BA48FF  \R"
+# --------------------------------------
 
 def get_hwid():
     try:
-        # ดึง UUID และทำความสะอาดข้อมูล (ตัดช่องว่าง, ปรับเป็นตัวพิมพ์ใหญ่)
+        # ดึง UUID และจัดการให้เป็นมาตรฐานเดียวกัน (ตัวพิมพ์ใหญ่และไม่มีช่องว่าง)
         cmd = 'wmic csproduct get uuid'
         uuid = str(subprocess.check_output(cmd, shell=True))
-        clean_uuid = uuid.split('\\r\\n')[1].strip().upper()
-        return clean_uuid
+        return uuid.split('\\r\\n')[1].strip().upper()
     except:
         return "UNKNOWN"
 
@@ -50,8 +49,9 @@ class KeyBox(QLabel):
 class SettingsDialog(QDialog):
     def __init__(self, current_monitor, callback):
         super().__init__()
-        self.setWindowTitle("Live Tuning - Authorized")
+        self.setWindowTitle("Admin: Live Monitor Tuning")
         self.setFixedWidth(280)
+        # ให้หน้าต่างตั้งค่าอยู่บนสุดเสมอเพื่อให้จูนพิกัดง่าย
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
         self.callback = callback
         
@@ -62,14 +62,10 @@ class SettingsDialog(QDialog):
             self.inputs[key].setStyleSheet("background: #222; color: #00ffff; border: 1px solid #444; padding: 5px;")
             layout.addRow(f"<b>{key.capitalize()}:</b>", self.inputs[key])
             
-        self.apply_btn = QPushButton("APPLY SETTINGS")
+        self.apply_btn = QPushButton("APPLY CHANGES")
         self.apply_btn.setStyleSheet("background-color: #00ffff; color: #111; font-weight: bold; height: 35px; border-radius: 5px;")
         self.apply_btn.clicked.connect(self.apply_settings)
         layout.addRow(self.apply_btn)
-        
-        self.info = QLabel("เปลี่ยนเลขแล้วกด Apply ได้เลย ภาพจะเปลี่ยนทันที")
-        self.info.setStyleSheet("color: #888; font-size: 9px;")
-        layout.addRow(self.info)
 
     def apply_settings(self):
         try:
@@ -151,51 +147,40 @@ class AutoDetectionWorker(QObject):
 class DetectionDisplay(QWidget):
     def __init__(self):
         super().__init__()
-        self.current_hwid = get_hwid()
-        self.setWindowTitle("🎣AUTO🎣- (Ready)")
-        self.setFixedSize(380, 270) # เพิ่มพื้นที่ด้านล่าง
+        self.current_id = get_hwid()
+        self.setWindowTitle("🎣AUTO🎣(Ready)")
+        self.setFixedSize(380, 260)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         self.setStyleSheet("background-color: #111; color: white;")
         
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(15, 10, 15, 5) 
+        main_layout.setContentsMargins(15, 10, 15, 10) 
         
         self.key_row = QHBoxLayout()
         self.boxes = [KeyBox() for _ in range(5)]
         for box in self.boxes: self.key_row.addWidget(box)
         main_layout.addLayout(self.key_row)
 
-        self.preview_label = QLabel("Loading...")
+        self.preview_label = QLabel("Initializing...")
         self.preview_label.setFixedSize(350, 80)
-        self.preview_label.setStyleSheet("border: 2px solid #333; background: #000;")
+        self.preview_label.setStyleSheet("border: 2px solid #333; background: #000; border-radius: 4px;")
         main_layout.addWidget(self.preview_label)
 
-        footer = QVBoxLayout()
+        # ส่วนตรวจสอบสิทธิ์
+        self.admin_btn = QPushButton()
         
-        id_layout = QHBoxLayout()
-        self.id_label = QLabel(f"ID: {self.current_hwid[:15]}...")
-        self.id_label.setStyleSheet("color: #555; font-size: 10px;")
-        self.copy_btn = QPushButton("COPY ID")
-        self.copy_btn.setFixedSize(60, 20)
-        self.copy_btn.setStyleSheet("background: #333; font-size: 9px; border-radius: 3px;")
-        self.copy_btn.clicked.connect(self.copy_id)
-        id_layout.addWidget(self.id_label)
-        id_layout.addWidget(self.copy_btn)
-        footer.addLayout(id_layout)
-
-        self.admin_btn = QPushButton("⚙️ OPEN SETTINGS")
-        # เช็คสิทธิ์
-        if self.current_hwid == AUTHORIZED_HWID.upper().strip():
-            self.admin_btn.setStyleSheet("background: #008080; color: #fff; font-weight: bold; height: 30px; border-radius: 5px;")
+        # ตรวจสอบว่า HWID ของเครื่องปัจจุบัน ตรงกับที่คุณให้มาหรือไม่
+        if self.current_id == MY_PC_HWID.upper().strip():
+            self.admin_btn.setText("⚙️ OPEN ADMIN SETTINGS")
+            self.admin_btn.setStyleSheet("background: #008080; color: white; font-weight: bold; height: 35px; border-radius: 5px;")
             self.admin_btn.setEnabled(True)
         else:
-            self.admin_btn.setStyleSheet("background: #222; color: #444; height: 30px; border-radius: 5px;")
-            self.admin_btn.setText("🔒 LOCKED (UNAUTHORIZED)")
+            self.admin_btn.setText("🔒 LOCKED (UNAUTHORIZED PC)")
+            self.admin_btn.setStyleSheet("background: #222; color: #555; height: 35px; border-radius: 5px;")
             self.admin_btn.setEnabled(False)
         
         self.admin_btn.clicked.connect(self.show_settings)
-        footer.addWidget(self.admin_btn)
-        main_layout.addLayout(footer)
+        main_layout.addWidget(self.admin_btn)
         
         self.setLayout(main_layout)
         self.monitor = {"top": 820, "left": 790, "width": 280, "height": 85}
@@ -209,10 +194,6 @@ class DetectionDisplay(QWidget):
         self.worker.press_index.connect(self.animate_press)
         self.thread.start()
         self.settings_win = None
-
-    def copy_id(self):
-        QApplication.clipboard().setText(self.current_hwid)
-        self.copy_btn.setText("COPIED!")
 
     def show_settings(self):
         if not self.settings_win:
@@ -234,6 +215,7 @@ class DetectionDisplay(QWidget):
     def update_image(self, cv_img):
         try:
             h, w, ch = cv_img.shape
+            # ปรับ Crop ให้พอดีที่สุด
             crop_v, crop_h = int(h * 0.20), int(w * 0.05)
             cropped = cv_img[crop_v:h-crop_v, crop_h:w-crop_h].copy() 
             new_h, new_w = cropped.shape[:2]
