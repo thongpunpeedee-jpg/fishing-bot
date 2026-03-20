@@ -86,7 +86,7 @@ class Worker(QObject):
         super().__init__()
         self.monitor = monitor
         self.running = False
-        self.threshold = 0.65 
+        self.threshold = 0.70 
         self.templates = {}
         for k in ['A', 'W', 'S', 'D']:
             img = cv2.imread(f"{k}.png")
@@ -150,7 +150,7 @@ class Worker(QObject):
 class App(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Auto new")
+        self.setWindowTitle("Auto v3")
         self.setFixedWidth(380)
         self.setStyleSheet("background-color: #0d0d0d; color: white;")
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
